@@ -69,7 +69,7 @@ class ResProjVariant(nn.Module):
             imgs_result.append(img_res)
             proj_mat = self.proj_mats[cam].repeat([B, 1, 1]).float().to('cuda:0')
             # head, *foot*
-            world_feature = kornia.warp_perspective(img_res[:, 1].unsqueeze(1).to('cuda:0'), proj_mat,
+            world_feature = kornia.geometry.warp_perspective(img_res[:, 1].unsqueeze(1).to('cuda:0'), proj_mat,
                                                     self.reducedgrid_shape)
             if visualize:
                 plt.imshow(img_res[0, 0].detach().cpu().numpy())

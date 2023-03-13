@@ -5,12 +5,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import kornia
 from torchvision.models.vgg import vgg11
+from multiview_detector.models.attn_module import ChannelGate, SpatialGate
 from multiview_detector.models.resnet import resnet18
 
 import matplotlib.pyplot as plt
 
 
-class PerspTransDetector(nn.Module):
+class SA_Detector(nn.Module):
     def __init__(self, dataset, arch='resnet18'):
         super().__init__()
         self.num_cam = dataset.num_cam
@@ -48,10 +49,12 @@ class PerspTransDetector(nn.Module):
         # 2.5cm -> 0.5m: 20x
         self.img_classifier = nn.Sequential(nn.Conv2d(out_channel, 64, 1), nn.ReLU(),
                                             nn.Conv2d(64, 2, 1, bias=False)).to('cuda:0')
-        self.world_classifier = nn.Sequential(nn.Conv2d(out_channel * self.num_cam + 2, 512, 3, padding=1), nn.ReLU(),
+        self.map_classifier = nn.Sequential(nn.Conv2d(out_channel * self.num_cam + 2, 512, 3, padding=1), nn.ReLU(),
                                             # nn.Conv2d(512, 512, 5, 1, 2), nn.ReLU(),
                                             nn.Conv2d(512, 512, 3, padding=2, dilation=2), nn.ReLU(),
                                             nn.Conv2d(512, 1, 3, padding=4, dilation=4, bias=False)).to('cuda:0')
+        self.spatial_attn = SpatialGate().to('cuda:0')
+
         pass
 
     def forward(self, imgs, visualize=False):
@@ -64,6 +67,7 @@ class PerspTransDetector(nn.Module):
             img_feature = self.base_pt2(img_feature.to('cuda:0'))
             img_feature = F.interpolate(img_feature, self.upsample_shape, mode='bilinear')
             img_res = self.img_classifier(img_feature.to('cuda:0'))
+            img_feature = self.spatial_attn(img_feature)
             imgs_result.append(img_res)
             proj_mat = self.proj_mats[cam].repeat([B, 1, 1]).float().to('cuda:0')
             world_feature = kornia.geometry.warp_perspective(img_feature.to('cuda:0'), proj_mat, self.reducedgrid_shape)
@@ -78,7 +82,7 @@ class PerspTransDetector(nn.Module):
         if visualize:
             plt.imshow(torch.norm(world_features[0].detach(), dim=0).cpu().numpy())
             plt.show()
-        map_result = self.world_classifier(world_features.to('cuda:0'))
+        map_result = self.map_classifier(world_features.to('cuda:0'))
         map_result = F.interpolate(map_result, self.reducedgrid_shape, mode='bilinear')
 
         if visualize:
